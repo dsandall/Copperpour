@@ -40,7 +40,7 @@ use super::sch_wiring::{
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
 pub fn tools() -> Vec<ToolDef> {
-    vec![
+    let mut tools = vec![
         tool!(
             "batch_connect_to_net",
             "Connect multiple component pins to a named net. By default it adds a net label \
@@ -413,7 +413,9 @@ pub fn tools() -> Vec<ToolDef> {
             }),
             |args, ctx| async move { handle_validate_component_connections(args, ctx).await }
         ),
-    ]
+    ];
+    tools.extend(super::sch_graphics::tools());
+    tools
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -1736,7 +1738,7 @@ async fn handle_connect_passthrough(
 /// Measured against KiCad 10's bundled demos — of 949 `(text …)` blocks, 362
 /// carry `(bold yes)`, 145 a `(thickness …)`, 77 a `(color …)` and 10
 /// `(italic yes)`. All of them sit inside `(font …)`, not beside it.
-fn schematic_text_font(args: &serde_json::Value, size: f64) -> Result<String, String> {
+pub(crate) fn schematic_text_font(args: &serde_json::Value, size: f64) -> Result<String, String> {
     let mut font = format!("(size {size} {size})");
 
     if let Some(thickness) = args.get("thickness") {
@@ -1816,7 +1818,7 @@ fn schematic_text_color(value: &serde_json::Value) -> Result<String, String> {
 ///
 /// Measured against KiCad 10's own demo projects: every text block in the
 /// current file format carries `(justify left bottom)`.
-const DEFAULT_TEXT_JUSTIFY: &str = "left bottom";
+pub(crate) const DEFAULT_TEXT_JUSTIFY: &str = "left bottom";
 
 /// Translate a caller's alignment into the `(justify ...)` clause KiCad writes.
 ///
@@ -1825,7 +1827,7 @@ const DEFAULT_TEXT_JUSTIFY: &str = "left bottom";
 /// centred and bottom-aligned. `"center"` centres both and so returns an empty
 /// string. There is no token for it — `(justify center)` makes KiCad refuse the
 /// whole file, the same way a misplaced item does.
-fn schematic_text_justify(value: &str) -> Result<String, String> {
+pub(crate) fn schematic_text_justify(value: &str) -> Result<String, String> {
     fn claim(
         slot: &mut Option<&'static str>,
         value: &'static str,

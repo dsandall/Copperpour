@@ -64,6 +64,7 @@ pub mod sch_bus;
 pub mod sch_components;
 pub(crate) mod sch_connectivity;
 pub mod sch_export;
+pub mod sch_graphics;
 pub mod sch_hierarchy;
 mod sch_label_rename;
 pub mod sch_wiring;
