@@ -101,7 +101,7 @@ is `TOOL`, for changes to the MCP tool surface. Scopes are toolset and crate nam
 
 | Carried here | Upstream status |
 |--------------|-----------------|
-| `sch_layout` toolset | To be offered: uses its own union-find, not `NetGraph` |
-| Schematic graphics tools | PR pending |
-| Sheet resize and pin side fix | PR pending |
-| `add_junction` duplicate fix | PR pending |
+| `sch_layout` toolset | Proposed in [#229](https://github.com/Copperpour/Copperpour/issues/229); uses its own union-find, not `NetGraph` |
+| Schematic graphics tools | Proposed in [#228](https://github.com/Copperpour/Copperpour/issues/228); needs the guards #56 asks for |
+| Sheet resize and pin side fix | [PR #226](https://github.com/Copperpour/Copperpour/pull/226) |
+| `add_junction` duplicate fix | [PR #227](https://github.com/Copperpour/Copperpour/pull/227) |
