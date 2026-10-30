@@ -72,3 +72,36 @@ When several agents share one clone, give each task its own git worktree and its
 `CARGO_TARGET_DIR`. Switching branches in a shared checkout changes files under another
 session's running tests, and a shared target directory can hand one worktree another's
 stale build artifacts.
+
+## This fork (dsandall/Copperpour)
+
+This is a public fork of [Copperpour/Copperpour](https://github.com/Copperpour/Copperpour).
+Keep this section when merging from upstream.
+
+- **Public by default.** Everything on this fork is public, so push finished work here
+  rather than holding it in a private remote. Before pushing, leave out secrets, private
+  board designs and customer data.
+- **Offer changes upstream, regularly.** Every time work lands here, and whenever you start
+  a session in this repo, check `gh pr list -R Copperpour/Copperpour --author dsandall` and
+  `git log copperpour/main..main`. Open a PR for each change that upstream doesn't have,
+  and follow up on the ones already open. Keep carrying a change here only if upstream
+  declines it, and record why in the table below.
+- **Follow upstream's process for those PRs:** one reviewable outcome per PR, branched from
+  current `copperpour/main`, with their commit style (`fix(scope): summary`) and the checks
+  in "Before you push". Open an issue first for anything non-trivial. Contributions are
+  AGPL-3.0 only; if an employer owns the work, get its permission first.
+- **Branches.** `main` is `copperpour/main` plus this fork's merged topic branches. Merge
+  upstream into `main` often. Never rebase or force-push it.
+- **Remotes.** `github` is this fork and `copperpour` is upstream. Never base work on
+  Konnect-EDA, which is closed source, and don't copy code from it.
+
+Fork-only commits use `KIND: scope: summary`, subject at most 72 characters. The domain kind
+is `TOOL`, for changes to the MCP tool surface. Scopes are toolset and crate names such as
+`sch_layout`, `sch_wiring`, `sch_batch`, `sch_hierarchy`, `ipc`, `sexp`, `install` and `fork`.
+
+| Carried here | Upstream status |
+|--------------|-----------------|
+| `sch_layout` toolset | To be offered: uses its own union-find, not `NetGraph` |
+| Schematic graphics tools | PR pending |
+| Sheet resize and pin side fix | PR pending |
+| `add_junction` duplicate fix | PR pending |
