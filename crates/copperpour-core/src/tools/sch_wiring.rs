@@ -458,7 +458,7 @@ fn find_first_symbol_instance(content: &str) -> Option<usize> {
 
 // ─── Bridge: convert copperpour-schematic-editor wires to copperpour_sexp wires ──────
 
-fn cse_wires_to_sexp(sch: &cse::Schematic) -> Vec<copperpour_sexp::schematic::Wire> {
+pub(crate) fn cse_wires_to_sexp(sch: &cse::Schematic) -> Vec<copperpour_sexp::schematic::Wire> {
     sch.wires
         .iter()
         .map(|w| copperpour_sexp::schematic::Wire {
@@ -815,7 +815,7 @@ async fn handle_add_wire(
     ))
 }
 
-async fn handle_batch_add_wire(
+pub(crate) async fn handle_batch_add_wire(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {
@@ -3473,7 +3473,7 @@ async fn handle_batch_delete_no_connect(
     })))
 }
 
-async fn handle_add_junction(
+pub(crate) async fn handle_add_junction(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {
@@ -3488,14 +3488,15 @@ async fn handle_add_junction(
     };
 
     let mut sch = cse::Schematic::load(&sch_path)?;
-    sch.add_junction(x, y);
+    // A second dot at the point would leave KiCad's ERC a duplicate to report.
+    add_missing_junctions(&mut sch, &[(x, y)]);
     sch.overwrite()?;
     Ok(CallToolResult::json(
         &json!({ "added_junction": { "x": x, "y": y } }),
     ))
 }
 
-async fn handle_batch_add_junction(
+pub(crate) async fn handle_batch_add_junction(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {
@@ -3508,7 +3509,7 @@ async fn handle_batch_add_junction(
     for pos in &positions {
         let x = pos["x"].as_f64().unwrap_or(0.0);
         let y = pos["y"].as_f64().unwrap_or(0.0);
-        sch.add_junction(x, y);
+        add_missing_junctions(&mut sch, &[(x, y)]);
     }
     sch.overwrite()?;
     Ok(CallToolResult::json(&json!({ "added": positions.len() })))
@@ -7057,5 +7058,59 @@ mod batch_power_tests {
                 "{arguments} wrote"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod add_junction_tests {
+    use super::*;
+    use crate::router::ToolRouter;
+    use crate::tools::ServerConfig;
+    use std::sync::Arc;
+
+    fn ctx() -> ToolContext {
+        ToolContext::new(
+            ServerConfig {
+                kicad_cli: String::new(),
+                kicad_binary: String::new(),
+                ipc_address: String::new(),
+                project_dir: None,
+                jlcpcb_db_path: None,
+                auto_load_toolsets: false,
+                eager_toolsets: false,
+            },
+            Arc::new(ToolRouter::new()),
+        )
+    }
+
+    #[tokio::test]
+    async fn repeating_a_junction_keeps_one_dot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.kicad_sch");
+        std::fs::write(
+            &path,
+            "(kicad_sch (version 20250114) (generator \"t\") (uuid \"a\") (paper \"A4\") \
+             (lib_symbols) (sheet_instances (path \"/\" (page \"1\"))))",
+        )
+        .unwrap();
+        let schematic = path.display().to_string();
+        for _ in 0..2 {
+            handle_add_junction(
+                &json!({ "schematic": schematic, "x": 10.16, "y": 10.16 }),
+                &ctx(),
+            )
+            .await
+            .unwrap();
+        }
+        handle_batch_add_junction(
+            &json!({ "schematic": schematic, "positions": [
+                { "x": 10.16, "y": 10.16 }, { "x": 20.32, "y": 10.16 }, { "x": 20.32, "y": 10.16 }
+            ] }),
+            &ctx(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(cse::Schematic::load(&path).unwrap().junctions.len(), 2);
     }
 }

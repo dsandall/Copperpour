@@ -1,5 +1,58 @@
 //! Tool trait definitions, ToolContext, and all toolset modules.
 
+/// Resolve exactly one parsed symbol instance, by uuid when given, else by
+/// reference — erroring (with uuids + positions listed) on duplicates.
+pub fn find_instance_unique<'a>(
+    instances: &'a [copperpour_sexp::schematic::SymbolInstance],
+    reference: &str,
+    uuid: Option<&str>,
+) -> Result<&'a copperpour_sexp::schematic::SymbolInstance, String> {
+    find_instance_index_unique(instances, reference, uuid).map(|i| &instances[i])
+}
+
+/// Index-returning form of [`find_instance_unique`] — for callers that keep a
+/// parallel array (e.g. instance nodes) alongside the parsed instances.
+pub fn find_instance_index_unique(
+    instances: &[copperpour_sexp::schematic::SymbolInstance],
+    reference: &str,
+    uuid: Option<&str>,
+) -> Result<usize, String> {
+    if let Some(u) = uuid {
+        return instances
+            .iter()
+            .position(|i| i.uuid.as_deref() == Some(u))
+            .ok_or_else(|| format!("Component with uuid '{u}' not found"));
+    }
+    let matches: Vec<usize> = instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.reference == reference)
+        .map(|(idx, _)| idx)
+        .collect();
+    match matches.as_slice() {
+        [] => Err(format!("Component '{reference}' not found")),
+        [one] => Ok(*one),
+        many_idx => {
+            let many: Vec<&copperpour_sexp::schematic::SymbolInstance> =
+                many_idx.iter().map(|&i| &instances[i]).collect();
+            Err(format!(
+                "{} components share reference '{reference}': {} — pass the 'uuid' argument to \
+                 disambiguate",
+                many.len(),
+                many.iter()
+                    .map(|i| format!(
+                        "uuid \"{}\" at ({}, {})",
+                        i.uuid.as_deref().unwrap_or("?"),
+                        i.x,
+                        i.y
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod board_extents_tests;
 #[cfg(test)]
@@ -66,6 +119,8 @@ pub(crate) mod sch_connectivity;
 pub mod sch_export;
 pub mod sch_hierarchy;
 mod sch_label_rename;
+pub mod sch_layout;
+pub mod sch_route;
 pub mod sch_wiring;
 pub mod schematic_builder;
 #[cfg(test)]
@@ -3159,6 +3214,8 @@ pub(crate) mod schematic_target_tests {
         tools.extend(sch_batch::tools());
         tools.extend(sch_wiring::tools());
         tools.extend(sch_export::tools());
+        tools.extend(sch_layout::tools());
+        tools.extend(sch_route::tools());
         for (name, mut args) in [
             (
                 "add_schematic_component",
