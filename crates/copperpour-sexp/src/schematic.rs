@@ -734,6 +734,130 @@ pub fn symbol_geometry_for_instance(
     })
 }
 
+/// Like [`extract_symbol_instances`], but pairs each parsed instance with the
+/// raw `(symbol …)` node it came from — needed when a caller must also read
+/// per-instance detail this struct doesn't model (property text positions,
+/// effects blocks, …).
+pub fn extract_symbol_instances_with_nodes(tree: &SexpNode) -> Vec<(SymbolInstance, &SexpNode)> {
+    tree.find_all("symbol")
+        .into_iter()
+        .filter_map(|node| parse_symbol_instance(node).map(|inst| (inst, node)))
+        .collect()
+}
+
+/// Like [`extract_lib_pins`], but follows `(extends "Base")` so derived
+/// symbols inherit the pins of their base definition. `lib_syms` is the list
+/// of sibling symbol definitions from the schematic's `lib_symbols` section —
+/// where embedded names carry the library prefix (`"Lib:Name"`) while an
+/// `extends` reference may be bare (`"Name"`) or prefixed (`"Lib:Name"`), so
+/// both spellings are matched. Walks most-derived-first with a cycle guard;
+/// pins are deduped by number so a derived pin shadows the base's.
+pub fn extract_lib_pins_resolved(lib_syms: &[&SexpNode], sym_node: &SexpNode) -> Vec<LibPin> {
+    let chain = resolve_extends_chain(lib_syms, sym_node);
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut pins = Vec::new();
+    for sym in &chain {
+        for pin in extract_lib_pins(sym) {
+            if seen.insert(pin.number.clone()) {
+                pins.push(pin);
+            }
+        }
+    }
+    pins
+}
+
+/// The `(extends …)` inheritance chain for a library symbol definition,
+/// most-derived first: `[sym_node, base, base-of-base, …]`. Cycle-guarded;
+/// matches bare vs library-prefixed base names both ways (see
+/// [`extract_lib_pins_resolved`]). Shared by pin extraction and bounding-box
+/// computation so both resolve inheritance identically.
+pub fn resolve_extends_chain<'a>(
+    lib_syms: &[&'a SexpNode],
+    sym_node: &'a SexpNode,
+) -> Vec<&'a SexpNode> {
+    let mut chain: Vec<&SexpNode> = Vec::new();
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut current = sym_node;
+    while let Some(name) = current.get(1).and_then(|n| n.as_str()) {
+        if !visited.insert(name) {
+            break; // cycle guard
+        }
+        chain.push(current);
+        let Some(base_name) = current
+            .find("extends")
+            .and_then(|e| e.get(1))
+            .and_then(|n| n.as_str())
+        else {
+            break; // terminal base
+        };
+        let lib_prefix = name.rsplit_once(':').map(|(lib, _)| lib);
+        let Some(base) = lib_syms.iter().find(|s| {
+            let Some(sname) = s.get(1).and_then(|n| n.as_str()) else {
+                return false;
+            };
+            sname == base_name
+                // bare extends vs prefixed embedded name ("Base" vs "Lib:Base")
+                || (!base_name.contains(':')
+                    && lib_prefix.is_some_and(|lib| {
+                        sname == format!("{}:{}", lib, base_name)
+                    }))
+                // prefixed extends vs bare embedded name ("Lib:Base" vs "Base")
+                || base_name
+                    .rsplit_once(':')
+                    .is_some_and(|(_, bare)| sname == bare)
+        }) else {
+            break; // missing base — return what we have
+        };
+        current = base;
+    }
+    chain
+}
+
+/// Like [`find_t_junctions`], but skips T-points that already have a junction
+/// (`existing`, within `tol`). Every wire-adding path must pass the document's
+/// current junctions here — re-emitting a `(junction …)` for a T that already
+/// has one is how real files ended up with 855 junction records at 50 unique
+/// coordinates.
+pub fn find_t_junctions_excluding(
+    wires: &[Wire],
+    tol: f64,
+    existing: &[(f64, f64)],
+) -> Vec<(f64, f64)> {
+    let mut junctions = Vec::new();
+
+    for w1 in wires {
+        // Check both endpoints of w1 against all other wires
+        for (px, py) in [(w1.x1, w1.y1), (w1.x2, w1.y2)] {
+            for w2 in wires {
+                if std::ptr::eq(w1, w2) {
+                    continue;
+                }
+                // Point is on w2 but NOT at its endpoints
+                let at_endpoint = crate::geometry::points_coincident(px, py, w2.x1, w2.y1, tol)
+                    || crate::geometry::points_coincident(px, py, w2.x2, w2.y2, tol);
+                if !at_endpoint && point_on_segment(px, py, w2.x1, w2.y1, w2.x2, w2.y2, tol) {
+                    // Skip points that already carry a junction in the document
+                    if existing
+                        .iter()
+                        .any(|(ex, ey)| crate::geometry::points_coincident(px, py, *ex, *ey, tol))
+                    {
+                        continue;
+                    }
+                    // Avoid duplicate junction positions
+                    if !junctions.iter().any(|(jx, jy): &(f64, f64)| {
+                        crate::geometry::points_coincident(px, py, *jx, *jy, tol)
+                    }) {
+                        junctions.push((px, py));
+                    }
+                }
+            }
+        }
+    }
+
+    junctions
+}
+
 #[cfg(test)]
 mod sheet_files_tests {
     use super::*;
@@ -962,62 +1086,64 @@ mod symbol_bounds_tests {
 pub fn extract_symbol_instances(tree: &SexpNode) -> Vec<SymbolInstance> {
     tree.find_all("symbol")
         .iter()
-        .filter_map(|node| {
-            // Top-level symbols only have lib_id and at; filter out library definitions
-            let lib_id = node.find("lib_id")?.get(1)?.as_str()?.to_string();
-            let lib_name = node
-                .find("lib_name")
-                .and_then(|n| n.get(1))
-                .and_then(|n| n.as_str())
-                .map(String::from);
-            let (x, y, rotation) = parse_at(node)?;
-
-            let mirror_node = node.find("mirror");
-            let mirror_x = mirror_node
-                .and_then(|m| m.get(1))
-                .and_then(|m| m.as_str())
-                .map(|s| s == "x" || s == "xy")
-                .unwrap_or(false);
-            let mirror_y = mirror_node
-                .and_then(|m| m.get(1))
-                .and_then(|m| m.as_str())
-                .map(|s| s == "y" || s == "xy")
-                .unwrap_or(false);
-
-            let prop = |name: &str| -> String {
-                node.find_all("property")
-                    .iter()
-                    .find(|p| p.get(1).and_then(|n| n.as_str()) == Some(name))
-                    .and_then(|p| p.get(2))
-                    .and_then(|n| n.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            };
-
-            let uuid = node
-                .find("uuid")
-                .and_then(|u| u.get(1))
-                .and_then(|u| u.as_str())
-                .map(String::from);
-
-            let unit = node.find_f64("unit").map(|u| u as u32).unwrap_or(1);
-
-            Some(SymbolInstance {
-                reference: prop("Reference"),
-                value: prop("Value"),
-                footprint: prop("Footprint"),
-                lib_name,
-                lib_id,
-                x,
-                y,
-                rotation,
-                mirror_x,
-                mirror_y,
-                uuid,
-                unit,
-            })
-        })
+        .filter_map(|node| parse_symbol_instance(node))
         .collect()
+}
+
+fn parse_symbol_instance(node: &SexpNode) -> Option<SymbolInstance> {
+    // Top-level symbols only have lib_id and at; filter out library definitions
+    let lib_id = node.find("lib_id")?.get(1)?.as_str()?.to_string();
+    let lib_name = node
+        .find("lib_name")
+        .and_then(|n| n.get(1))
+        .and_then(|n| n.as_str())
+        .map(String::from);
+    let (x, y, rotation) = parse_at(node)?;
+
+    let mirror_node = node.find("mirror");
+    let mirror_x = mirror_node
+        .and_then(|m| m.get(1))
+        .and_then(|m| m.as_str())
+        .map(|s| s == "x" || s == "xy")
+        .unwrap_or(false);
+    let mirror_y = mirror_node
+        .and_then(|m| m.get(1))
+        .and_then(|m| m.as_str())
+        .map(|s| s == "y" || s == "xy")
+        .unwrap_or(false);
+
+    let prop = |name: &str| -> String {
+        node.find_all("property")
+            .iter()
+            .find(|p| p.get(1).and_then(|n| n.as_str()) == Some(name))
+            .and_then(|p| p.get(2))
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let uuid = node
+        .find("uuid")
+        .and_then(|u| u.get(1))
+        .and_then(|u| u.as_str())
+        .map(String::from);
+
+    let unit = node.find_f64("unit").map(|u| u as u32).unwrap_or(1);
+
+    Some(SymbolInstance {
+        reference: prop("Reference"),
+        value: prop("Value"),
+        footprint: prop("Footprint"),
+        lib_name,
+        lib_id,
+        x,
+        y,
+        rotation,
+        mirror_x,
+        mirror_y,
+        uuid,
+        unit,
+    })
 }
 
 /// Resolve an instance's embedded `lib_symbols` definition the way KiCAD does:

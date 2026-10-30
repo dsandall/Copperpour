@@ -1,3 +1,4 @@
+pub mod bbox;
 pub mod board;
 pub mod bounds;
 pub mod command;

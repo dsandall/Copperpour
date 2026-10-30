@@ -458,7 +458,7 @@ fn find_first_symbol_instance(content: &str) -> Option<usize> {
 
 // ─── Bridge: convert copperpour-schematic-editor wires to copperpour_sexp wires ──────
 
-fn cse_wires_to_sexp(sch: &cse::Schematic) -> Vec<copperpour_sexp::schematic::Wire> {
+pub(crate) fn cse_wires_to_sexp(sch: &cse::Schematic) -> Vec<copperpour_sexp::schematic::Wire> {
     sch.wires
         .iter()
         .map(|w| copperpour_sexp::schematic::Wire {
@@ -815,7 +815,7 @@ async fn handle_add_wire(
     ))
 }
 
-async fn handle_batch_add_wire(
+pub(crate) async fn handle_batch_add_wire(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {
@@ -3473,7 +3473,7 @@ async fn handle_batch_delete_no_connect(
     })))
 }
 
-async fn handle_add_junction(
+pub(crate) async fn handle_add_junction(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {
@@ -3496,7 +3496,7 @@ async fn handle_add_junction(
     ))
 }
 
-async fn handle_batch_add_junction(
+pub(crate) async fn handle_batch_add_junction(
     args: &serde_json::Value,
     _ctx: &ToolContext,
 ) -> anyhow::Result<CallToolResult> {

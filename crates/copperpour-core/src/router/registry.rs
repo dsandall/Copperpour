@@ -45,6 +45,12 @@ pub static ALL_TOOLSETS: &[ToolsetMeta] = &[
         tool_count: 20,
     },
     ToolsetMeta {
+        name: "sch_layout",
+        description: "Placement-first tooling: pin-collinear rows, array placement, a static placement oracle, and engine-computed routing (route_connection, apply_net, mark_unused_pins, cleanup_junctions)",
+        category: "schematic",
+        tool_count: 7,
+    },
+    ToolsetMeta {
         name: "sch_bus",
         description: "Buses, bus entries, and fanning a group of pins out onto a bus",
         category: "schematic",
@@ -176,6 +182,11 @@ fn build_tools_for(name: &str) -> Option<Vec<ToolDef>> {
         "editor_navigation" => Some(editor_navigation::tools()),
         "sch_components" => Some(sch_components::tools()),
         "sch_wiring" => Some(sch_wiring::tools()),
+        "sch_layout" => Some({
+            let mut tools = sch_layout::tools();
+            tools.extend(sch_route::tools());
+            tools
+        }),
         "sch_bus" => Some(sch_bus::tools()),
         "sch_analysis" => Some(sch_analysis::tools()),
         "sch_batch" => Some(sch_batch::tools()),
